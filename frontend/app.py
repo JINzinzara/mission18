@@ -1,11 +1,71 @@
 import os
+import sys
+import subprocess
+import time
+from datetime import date
+from pathlib import Path
 
 import requests
 import streamlit as st
 
-from datetime import date
-
 BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def backend_is_healthy(_proc=None):
+    """백엔드의 정상 응답을 확인. 캐시된 서버의 상태 검사에도 사용"""
+    try:
+        response = requests.get(f"{BASE_URL}/health", timeout=1)
+        if response.status_code != 200:
+            return False
+        body = response.json()
+        return isinstance(body, dict) and body.get("status") == "ok"
+    except (requests.RequestException, ValueError):
+        return False
+
+
+@st.cache_resource(
+    show_spinner="서비스 서버 준비 중...",
+    validate=backend_is_healthy,
+)
+def ensure_backend_running():
+    """실행 중인 서버를 재사용하거나 새로 실행"""
+    if backend_is_healthy():
+        return None
+
+    backend_dir = Path(__file__).resolve().parent.parent / "backend"
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8000",
+        ],
+        cwd=backend_dir,
+    )
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        exit_code = proc.poll()
+        if exit_code is not None:
+            raise RuntimeError(
+                f"백엔드가 종료되었습니다(종료 코드: {exit_code}). "
+                "터미널 또는 배포 로그를 확인해주세요."
+            )
+        if backend_is_healthy():
+            return proc
+        time.sleep(0.5)
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    raise RuntimeError("백엔드가 제한 시간 안에 준비되지 않았습니다")
 
 
 def api_get(path: str, params: dict | None = None):
@@ -160,6 +220,12 @@ def render_movie_info_reviews():
 
 st.title("🎥 영화 리뷰 서비스")
 
+try:
+    ensure_backend_running()
+except (OSError, RuntimeError) as exc:
+    st.error(str(exc))
+    st.stop()
+
 page = st.navigation(
     [
         st.Page(render_movie_form, title="영화 등록", default=True),
@@ -168,4 +234,7 @@ page = st.navigation(
     ]
 )
 
-page.run()
+try:
+    page.run()
+except requests.RequestException:
+    st.error("서버와 연결하지 못했습니다. 잠시 후 다시 시도해주세요")
