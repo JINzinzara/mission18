@@ -1,0 +1,8 @@
+[theme]
+base = "light"
+primaryColor = "#3F302C"             # 진한 갈색: 버튼·선택 표시
+backgroundColor = "#E5DAC8"          # 베이지: 화면 배경
+secondaryBackgroundColor = "#C0B194" # 짙은 베이지: 입력창·사이드바
+textColor = "#3F302C"                # 진한 갈색: 글자
+borderColor = "#A18662"              # 황갈색: 테두리
+orangeColor = "#B47554"              # 주황갈색: 보조 강조색
